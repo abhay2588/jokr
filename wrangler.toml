@@ -4,7 +4,7 @@ compatibility_date = "2025-08-28"
 
 # Add your portal details here
 [vars]
-HOST = "http://iptv.initv.de/stalker_portal/c/"
+HOST = "iptv.initv.de"
 MAC = "00:1A:79:61:2D:BB"
 SERIAL = "56EB7FA68778C"
 DEVICE_ID = "76C8FF8575442448A774C2E59098C02D0C209486B0FA9064CB193B7DC28789ED"
