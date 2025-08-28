@@ -2,9 +2,7 @@ name = "jokr"
 main = "worker.js"
 compatibility_date = "2025-08-28"
 
-# Optional: if your script is in /src
-# main = "worker.js"
-
+# Add your portal details here
 [vars]
 HOST = "http://iptv.initv.de/stalker_portal/c/"
 MAC = "00:1A:79:61:2D:BB"
