@@ -4,7 +4,7 @@ compatibility_date = "2025-08-28"
 
 # Add your portal details here
 [vars]
-HOST = "tatatv.cc"
+HOST = "http://tatatv.cc/stalker_portal"
 MAC = "00:1A:79:00:30:DD"
 SERIAL = "217BFD70A71B4"
 DEVICE_ID = "451DB0713D3F21FF9591FEAFA9FF5FEFAC8A38C888405884A0BD2FD"
