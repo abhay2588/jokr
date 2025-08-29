@@ -10,12 +10,12 @@
 
 // ============ ⚙ CONFIGURATION ============
 const config = {
-    host: '', // Replace with your Stalker-Portal host (e.g., 'example.com')
-    mac_address: '', // Replace with your MAC address
-    serial_number: '', // Replace with your serial number
-    device_id: '', // Replace with your device_id
-    device_id_2: '', // Replace with your device_id_2
-    stb_type: 'MAG250', // Replace with Stalker-Portal Stb_type
+    host: '', // tv.stream4k.cc
+    mac_address: '', // 00:1A:79:00:56:47
+    serial_number: '', // 61C8D6A3F59F3
+    device_id: '', // 0D1FD8435FE779D0EE5E33F67B333290E5D8E7EF1A28A9BC72C0E9C3EFB25C27
+    device_id_2: '', // 0D1FD8435FE779D0EE5E33F67B333290E5D8E7EF1A28A9BC72C0E9C3EFB25C27
+    stb_type: 'MAG250', // MAG250
     api_signature: '263', // No need to change
 };
 
