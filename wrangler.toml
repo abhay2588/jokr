@@ -1,1 +1,12 @@
+name = "jokr"
+main = "worker.js"
+compatibility_date = "2025-08-28"
+type = "javascript"
 
+# Optional: if using KV or environment variables
+# [[vars]]
+# HOST = "tv.max4k.us"
+# MAC = "00:1A:79:00:33:50"
+# SERIAL = "B7D839D4DF665"
+# DEVICE_ID = "E01A0AA9552A8ABECD5747E117FFE2A92BAB76D19D207A3DAB4CEEF3AB1DF505"
+# DEVICE_ID2 = "E01A0AA9552A8ABECD5747E117FFE2A92BAB76D19D207A3DAB4CEEF3AB1DF505"
