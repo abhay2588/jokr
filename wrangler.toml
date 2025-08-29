@@ -5,7 +5,7 @@ type = "javascript"
 
 # Optional: if using KV or environment variables
 # [[vars]]
-# HOST = "4k.spicetv.cc"
+# HOST = "4k.spicetv.cc/stalker_portal"
 # MAC = "00:1A:79:00:75:38"
 # SERIAL = "231318707131E"
 # DEVICE_ID = "451625626CE2162B9D0EA17A9FF0EDA1D80833639621DCB08B09723"
