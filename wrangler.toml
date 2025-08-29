@@ -5,7 +5,7 @@ type = "javascript"
 
 # Optional: if using KV or environment variables
 # [[vars]]
-# HOST = "tv.stream4k.cc"
+# HOST = "tv.stream4k.com"
 # MAC = "00:1A:79:00:56:47"
 # SERIAL = "61C8D6A3F59F3"
 # DEVICE_ID = "0D1FD8435FE779D0EE5E33F67B333290E5D8E7EF1A28A9BC72C0E9C3EFB25C27"
