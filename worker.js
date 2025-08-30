@@ -5,10 +5,10 @@
 export default {
   async fetch(request, env, ctx) {
     try {
-      const portalUrl = "http://tv.stream4k.cc/stalker_portal/c/"; // 👈 must end with /c/
-      const macAddress = "00:1A:79:00:56:47"; // 👈 replace with real MAC
-      const deviceId = "0D1FD8435FE779D0EE5E33F67B333290E5D8E7EF1A28A9BC72C0E9C3EFB25C27";    // 👈 fixed, not random
-      const sn = "61C8D6A3F59F3";              // 👈 fixed serial
+      const portalUrl = "http://iptv.initv.de/stalker_portal/c"; // 👈 must end with /c/
+      const macAddress = "00:1A:79:61:2D:BB"; // 👈 replace with real MAC
+      const deviceId = "76C8FF8575442448A774C2E59098C02D0C209486B0FA9064CB193B7DC28789ED";    // 👈 fixed, not random
+      const sn = "56EB7FA68778C";              // 👈 fixed serial
 
       // Step 1: Handshake → token
       const token = await generateToken(portalUrl, macAddress, deviceId, sn);
