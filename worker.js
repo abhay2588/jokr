@@ -10,11 +10,11 @@
 
 // ============ ⚙ CONFIGURATION ============
 const config = {
-    host: '', // tv.stream4k.cc
+    host: '', // portal.elite4k.co
     mac_address: '', // 00:1A:79:00:56:47
-    serial_number: '', // 61C8D6A3F59F3
-    device_id: '', // 0D1FD8435FE779D0EE5E33F67B333290E5D8E7EF1A28A9BC72C0E9C3EFB25C27
-    device_id_2: '', // 0D1FD8435FE779D0EE5E33F67B333290E5D8E7EF1A28A9BC72C0E9C3EFB25C27
+    serial_number: '', // BE2956BA552B4
+    device_id: '', // E4FB9CDE13677D678BD99F2B9755A256E434FC309933113D7A4047DD03868386
+    device_id_2: '', // 58928D4E403754231872639CFB8F4E714A2C17F38F802BABBA938B391CCE4604
     stb_type: 'MAG250', // MAG250
     api_signature: '263', // No need to change
 };
