@@ -5,7 +5,7 @@ type = "javascript"
 
 # Optional: if using KV or environment variables
 # [[vars]]
-# HOST = "portal.elite4k.co"
+# HOST = "http://portal.elite4k.co"
 # MAC = "00:1A:79:11:A7:38"
 # SERIAL = "BE2956BA552B4"
 # DEVICE_ID = "E4FB9CDE13677D678BD99F2B9755A256E434FC309933113D7A4047DD03868386"
