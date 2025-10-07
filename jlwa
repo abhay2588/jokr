@@ -1,5 +1,5 @@
 // ==========================================
-// Stalker Portal → M3U (Localhost Termux Version w/ Cache)
+// Stalker Portal → M3U (Termux Localhost Full Fix)
 // ==========================================
 
 const fetch = require('node-fetch'); // npm install node-fetch
@@ -7,7 +7,7 @@ const express = require('express');   // npm install express
 const app = express();
 
 const config = {
-    host: 'tv.max4k.us',           
+    host: 'tv.max4k.us',
     mac_address: '00:1A:79:31:32:34',
     serial_number: '11843A46BE795',
     device_id: '2F06FD2B8978C71B633B536368A1B7CF2D6294E94355EE6B672BFD05771E0FEE',
@@ -16,10 +16,30 @@ const config = {
     api_signature: '263',
 };
 
-// Headers for Stalker requests
+// ========== TOKEN CACHING ==========
+let cachedToken = '';
+let tokenTimestamp = 0;
+const TOKEN_VALIDITY_MS = 5 * 60 * 1000; // 5 minutes
+
+async function getToken() {
+    const now = Date.now();
+    if (cachedToken && now - tokenTimestamp < TOKEN_VALIDITY_MS) return cachedToken;
+
+    const url = `http://${config.host}/stalker_portal/server/load.php?type=stb&action=handshake&JsHttpRequest=1-xml`;
+    console.log(`Fetching new token from: ${url}`);
+    const res = await fetch(url, { headers: getHeaders() });
+    const text = await res.text();
+    const data = JSON.parse(text);
+    cachedToken = data.js?.token || '';
+    tokenTimestamp = now;
+    console.log(`Token fetched: ${cachedToken ? 'ok' : 'failed'}`);
+    return cachedToken;
+}
+
+// ========== HEADERS ==========
 function getHeaders(token = '') {
     const headers = {
-        'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C)',
+        'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
         'X-User-Agent': `Model: ${config.stb_type}; Link: WiFi`,
         'Referer': `http://${config.host}/c/`,
         'Cookie': `mac=${config.mac_address}; stb_lang=en; timezone=GMT`
@@ -28,16 +48,7 @@ function getHeaders(token = '') {
     return headers;
 }
 
-// Fetch token
-async function getToken() {
-    const url = `http://${config.host}/stalker_portal/server/load.php?type=stb&action=handshake&JsHttpRequest=1-xml`;
-    const res = await fetch(url, { headers: getHeaders() });
-    const text = await res.text();
-    const data = JSON.parse(text);
-    return data.js?.token || '';
-}
-
-// Fetch all channels
+// ========== CHANNELS ==========
 async function getAllChannels(token) {
     const url = `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`;
     const res = await fetch(url, { headers: getHeaders(token) });
@@ -47,10 +58,8 @@ async function getAllChannels(token) {
     return data.js.data.map(ch => ({ id: ch.id, name: ch.name, cmd: ch.cmd, logo: ch.logo }));
 }
 
-// Cache for create_link results
+// ========== STREAM CACHE ==========
 const streamCache = {};
-
-// Get stream URL for a channel with cache
 async function getStreamURL(channel, token) {
     if(!channel.cmd) return '';
     if(streamCache[channel.id]) return streamCache[channel.id];
@@ -60,11 +69,11 @@ async function getStreamURL(channel, token) {
     const text = await res.text();
     const data = JSON.parse(text);
     const stream = data.js?.cmd || '';
-    streamCache[channel.id] = stream; // Save to cache
+    streamCache[channel.id] = stream;
     return stream;
 }
 
-// Generate M3U
+// ========== GENERATE M3U ==========
 async function generateM3U() {
     const token = await getToken();
     if(!token) throw new Error('Failed to get token');
@@ -79,7 +88,7 @@ async function generateM3U() {
     return m3u.join('\n');
 }
 
-// Express route
+// ========== EXPRESS SERVER ==========
 app.get('/playlist.m3u8', async (req, res) => {
     try {
         const m3u = await generateM3U();
@@ -90,7 +99,6 @@ app.get('/playlist.m3u8', async (req, res) => {
     }
 });
 
-// Start server
 const PORT = 8080;
 app.listen(PORT, () => {
     console.log(`Stalker M3U server running on http://localhost:${PORT}/playlist.m3u8`);
