@@ -1,6 +1,7 @@
-// stalker_local_server.js
-// Stalker Portal -> M3U Local Server (Termux-ready, MAG-style auth via Cookie)
-// Config prefilled with values you provided.
+// stalker_local_server_termux.js
+// Termux-ready Stalker -> M3U + EPG server
+// Requires: express, node-fetch@2, xml2js
+// Usage: edit CONFIG below, then `node stalker_local_server_termux.js`
 
 const express = require('express');
 const fetch = require('node-fetch'); // v2
@@ -10,22 +11,23 @@ const crypto = require('crypto');
 const app = express();
 app.use(express.json());
 
-/* ========== CONFIG (from your message) ========== */
+/* ================== CONFIG - edit these ================== */
 const config = {
-  host: 'tv.max4k.us',
+  host: 'tv.max4k.us',                         // your portal host (no http://)
   mac_address: '00:1A:79:31:32:34',
   serial_number: '11843A46BE795',
   device_id: '2F06FD2B8978C71B633B536368A1B7CF2D6294E94355EE6B672BFD05771E0FEE',
   device_id_2: '2F06FD2B8978C71B633B536368A1B7CF2D6294E94355EE6B672BFD05771E0FEE',
   stb_type: 'MAG250',
-  api_signature: '263'
+  api_signature: '263',
+  port: 3000,
 };
-/* ================================================ */
+/* ======================================================== */
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || config.port || 3000;
 
-function logDebug(msg) {
-  console.log(new Date().toISOString(), '-', msg);
+function logDebug(...args) {
+  console.log(new Date().toISOString(), '-', ...args);
 }
 
 function md5hex(s) {
@@ -37,50 +39,45 @@ function generateHardwareVersionsSync() {
   config.hw_version_2 = md5hex((config.serial_number || '').toLowerCase() + (config.mac_address || '').toLowerCase());
 }
 
+// safe JSON parse (strip XSSI prefixes)
 function safeParseText(text) {
   if (!text || typeof text !== 'string') return null;
-  text = text.trim();
-  const idx = text.search(/[\{\[]/);
-  if (idx > 0) text = text.substring(idx);
-  try { return JSON.parse(text); } catch (e) {
-    // attempt tiny xml fallback
-    return null;
-  }
+  let t = text.trim();
+  const idx = t.search(/[\{\[]/);
+  if (idx > 0) t = t.substring(idx);
+  try { return JSON.parse(t); } catch (e) { return null; }
 }
 
 function getHeaders(token = '') {
-  // Put token in Cookie (MAG-style) rather than Authorization header.
+  // Put token into Cookie (MAG-style) to appease some portals
   const cookieParts = [`mac=${config.mac_address}`, 'stb_lang=en', 'timezone=GMT'];
   if (token) cookieParts.push(`token=${token}`);
-  const headers = {
+  return {
     'Cookie': cookieParts.join('; '),
     'Referer': `http://${config.host}/stalker_portal/c/`,
-    'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
+    'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) MAG200 stbapp',
     'X-User-Agent': `Model: ${config.stb_type}; Link: WiFi`,
     'Accept': '*/*'
   };
-  return headers;
 }
-
-/* ===== Portal API helpers ===== */
 
 async function fetchText(url, headers = {}) {
   const res = await fetch(url, { headers, timeout: 20000 });
-  const txt = await res.text();
-  return txt;
+  return await res.text();
 }
 
+// ----- Stalker API helpers -----
 async function getToken() {
   const url = `http://${config.host}/stalker_portal/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml`;
   try {
-    logDebug(`getToken -> ${url}`);
+    logDebug('getToken ->', url);
     const txt = await fetchText(url, getHeaders(''));
     const parsed = safeParseText(txt);
     const token = parsed && parsed.js && parsed.js.token ? parsed.js.token : '';
-    logDebug(`getToken: ${token ? 'ok' : 'empty'}`);
+    logDebug('token:', token ? 'ok' : 'empty');
     return token;
   } catch (e) {
-    logDebug('getToken error: ' + e.message);
+    logDebug('getToken error:', e.message);
     return '';
   }
 }
@@ -99,12 +96,12 @@ async function auth(token) {
     + `&hw_version_2=${config.hw_version_2}&api_signature=${config.api_signature}`
     + `&prehash=&JsHttpRequest=1-xml`;
   try {
-    logDebug(`auth -> (profile)`);
+    logDebug('auth -> profile');
     const txt = await fetchText(url, getHeaders(token));
     const parsed = safeParseText(txt);
     return parsed && parsed.js ? parsed.js : [];
   } catch (e) {
-    logDebug('auth error: ' + e.message);
+    logDebug('auth error:', e.message);
     return [];
   }
 }
@@ -115,11 +112,9 @@ async function handShake(token) {
     logDebug('handShake -> token');
     const txt = await fetchText(url, getHeaders(token));
     const parsed = safeParseText(txt);
-    const newToken = parsed && parsed.js && parsed.js.token ? parsed.js.token : '';
-    logDebug(`handShake token: ${newToken ? 'ok' : 'empty'}`);
-    return newToken;
+    return parsed && parsed.js && parsed.js.token ? parsed.js.token : '';
   } catch (e) {
-    logDebug('handShake error: ' + e.message);
+    logDebug('handShake error:', e.message);
     return '';
   }
 }
@@ -131,7 +126,7 @@ async function getAccountInfo(token) {
     const parsed = safeParseText(txt);
     return parsed && parsed.js ? parsed.js : [];
   } catch (e) {
-    logDebug('getAccountInfo error: ' + e.message);
+    logDebug('getAccountInfo error:', e.message);
     return [];
   }
 }
@@ -143,7 +138,7 @@ async function getGenres(token) {
     const parsed = safeParseText(txt);
     return parsed && parsed.js ? parsed.js : [];
   } catch (e) {
-    logDebug('getGenres error: ' + e.message);
+    logDebug('getGenres error:', e.message);
     return [];
   }
 }
@@ -154,10 +149,10 @@ async function getStreamURL(id, token) {
     const txt = await fetchText(url, getHeaders(token));
     const parsed = safeParseText(txt);
     const cmd = parsed && parsed.js && parsed.js.cmd ? parsed.js.cmd : '';
-    logDebug(`create_link for ${id}: ${cmd ? 'ok' : 'empty'}`);
+    logDebug('create_link ->', cmd ? 'ok' : 'empty');
     return cmd;
   } catch (e) {
-    logDebug('getStreamURL error: ' + e.message);
+    logDebug('getStreamURL error:', e.message);
     return '';
   }
 }
@@ -166,32 +161,26 @@ async function genToken() {
   generateHardwareVersionsSync();
   const t0 = await getToken();
   if (!t0) {
-    logDebug('genToken: initial token empty');
+    logDebug('genToken: t0 empty');
     return { token: '', profile: [], account_info: [] };
   }
-  // try profile
   const profile = await auth(t0);
   const t1 = await handShake(t0);
   if (!t1) {
-    logDebug('genToken: handshake token empty');
+    logDebug('genToken: handshake returned empty');
     return { token: '', profile, account_info: [] };
   }
   const account_info = await getAccountInfo(t1);
   return { token: t1, profile, account_info };
 }
 
-/* ====== M3U builder ====== */
-
+// ---------- M3U builder ----------
 function convertChannelsToM3U(channels, profile, account_info, req) {
   const origin = `${req.protocol}://${req.get('host')}`;
   const m3u = ['#EXTM3U', `# Script => @tg_aadi`, `# Portal => ${config.host}`, ''];
-  // small info block
-  m3u.push(`#EXTINF:-1,Portal • ${config.host}`);
-  m3u.push('https://tg-aadi.vercel.app/intro.m3u8');
-
-  channels.forEach((ch, i) => {
-    const name = ch.name || ch.title || `channel_${i}`;
-    // try extract id from cmd or fields
+  channels.forEach((ch, idx) => {
+    const name = ch.name || ch.title || `channel_${idx}`;
+    // try to get id
     let cmd = ch.cmd || '';
     let chId = '';
     const m = String(cmd).match(/\/ch\/(\d+)/);
@@ -201,33 +190,97 @@ function convertChannelsToM3U(channels, profile, account_info, req) {
     const streamUrl = chId ? `${origin}/${encodeURIComponent(chId)}.m3u8` : 'about:blank';
     m3u.push(`#EXTINF:-1 tvg-id="${ch.xmltv_id||''}" tvg-name="${name}" tvg-logo="${logo}" group-title="${ch.title||'Other'}",${name}`);
     m3u.push(streamUrl);
-    if (i < 5) logDebug(`M3U entry ${i}: ${name} -> ${streamUrl}`);
   });
   return m3u.join('\n');
 }
 
-/* ====== Express routes ====== */
+// ---------- EPG builder (tries to map simple EPG to XMLTV) ----------
+async function fetchEPG(token) {
+  // try common endpoint that returns EPG-like or channel programs
+  const urlCandidates = [
+    `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_simple_data&JsHttpRequest=1-xml`,
+    `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_genres&JsHttpRequest=1-xml`,
+    `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_channels&JsHttpRequest=1-xml`,
+  ];
+  for (const url of urlCandidates) {
+    try {
+      logDebug('Trying EPG endpoint:', url);
+      const txt = await fetchText(url, getHeaders(token));
+      const parsed = safeParseText(txt);
+      if (parsed && parsed.js) {
+        // many portals don't return full EPG; we attempt to extract programs if present
+        // If parsed.js has 'data' with channels and 'epg' fields, use them
+        const js = parsed.js;
+        if (js.epg && Object.keys(js.epg).length > 0) {
+          return { type: 'js-epg', data: js.epg };
+        }
+        // else if channels list present, return that for minimal mapping
+        if (Array.isArray(js.data) && js.data.length > 0) {
+          return { type: 'channels', data: js.data };
+        }
+      }
+      // try xml parse fallback
+      try {
+        const xml = await xml2js.parseStringPromise(txt, { explicitArray: false, mergeAttrs: true });
+        // if xml contains programme nodes or channel nodes
+        if (xml && (xml.tv || xml.programme || xml.channel)) {
+          return { type: 'xml-raw', data: xml };
+        }
+      } catch (e) { /* ignore */ }
+    } catch (e) {
+      logDebug('EPG candidate failed:', e.message);
+    }
+  }
+  return null;
+}
+
+function buildXmlTvFromSimple(epgObj) {
+  // epgObj is expected as { channelId: [ {start,end,title,desc}, ... ], ... }
+  const lines = [];
+  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
+  lines.push('<tv>');
+  for (const chId of Object.keys(epgObj)) {
+    lines.push(`<channel id="${chId}"><display-name>${chId}</display-name></channel>`);
+  }
+  for (const chId of Object.keys(epgObj)) {
+    const programs = epgObj[chId] || [];
+    for (const prog of programs) {
+      const start = prog.start || prog.s || '';
+      const stop = prog.stop || prog.e || '';
+      const title = (prog.title || prog.name || prog.t) || '';
+      const desc = (prog.desc || prog.description || prog.d) || '';
+      if (!start) continue;
+      lines.push(`<programme start="${start}" stop="${stop}" channel="${chId}">`);
+      lines.push(`<title>${xmlEscape(title)}</title>`);
+      if (desc) lines.push(`<desc>${xmlEscape(desc)}</desc>`);
+      lines.push(`</programme>`);
+    }
+  }
+  lines.push('</tv>');
+  return lines.join('\n');
+}
+
+function xmlEscape(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---------- Express routes ----------
 
 app.get('/playlist.m3u8', async (req, res) => {
   try {
     logDebug('playlist requested');
     const { token, profile, account_info } = await genToken();
-    if (!token) {
-      logDebug('playlist: token missing');
-      return res.status(500).send('Token generation failed');
-    }
+    if (!token) return res.status(500).send('Token generation failed');
 
-    // fetch channels
     const channelsUrl = `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`;
-    logDebug('Fetching channels...');
     const raw = await fetchText(channelsUrl, getHeaders(token));
     let parsed = safeParseText(raw);
     let channels = [];
     if (parsed && parsed.js && Array.isArray(parsed.js.data)) {
       channels = parsed.js.data;
-      logDebug(`Channels count: ${channels.length}`);
     } else {
-      // fallback to XML parse
+      // try XML fallback
       try {
         const xml = await xml2js.parseStringPromise(raw, { explicitArray: false, mergeAttrs: true });
         const chs = [];
@@ -241,9 +294,8 @@ app.get('/playlist.m3u8', async (req, res) => {
         }
         walk(xml);
         channels = chs;
-        logDebug(`XML fallback channels: ${channels.length}`);
       } catch (e) {
-        logDebug('XML parse fallback failed: ' + e.message);
+        logDebug('channels XML fallback failed:', e.message);
       }
     }
 
@@ -251,8 +303,35 @@ app.get('/playlist.m3u8', async (req, res) => {
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
     res.send(m3u);
   } catch (e) {
-    logDebug('playlist error: ' + e.message);
+    logDebug('playlist error:', e.message);
     res.status(500).send('Error generating playlist');
+  }
+});
+
+app.get('/epg.xml', async (req, res) => {
+  try {
+    logDebug('EPG requested');
+    const { token } = await genToken();
+    if (!token) return res.status(500).send('Token generation failed');
+    const epg = await fetchEPG(token);
+    if (!epg) return res.status(404).send('EPG not available');
+    if (epg.type === 'js-epg') {
+      const xml = buildXmlTvFromSimple(epg.data);
+      res.set('Content-Type', 'application/xml');
+      return res.send(xml);
+    }
+    if (epg.type === 'xml-raw') {
+      // If raw xml, try to stringify minimal; xml2js can't reverse easily so send original structure as xml not available
+      const builder = new xml2js.Builder();
+      const xmlStr = builder.buildObject(epg.data);
+      res.set('Content-Type', 'application/xml');
+      return res.send(xmlStr);
+    }
+    // channels-only fallback -> empty EPG
+    return res.status(204).send();
+  } catch (e) {
+    logDebug('EPG error:', e.message);
+    res.status(500).send('Error generating EPG');
   }
 });
 
@@ -264,16 +343,18 @@ app.get('/:id.m3u8', async (req, res) => {
     if (!token) return res.status(500).send('Token generation failed');
     const stream = await getStreamURL(id, token);
     if (!stream) return res.status(500).send('No stream returned');
-    // redirect to real stream (302)
     return res.redirect(302, stream);
   } catch (e) {
-    logDebug('stream error: ' + e.message);
+    logDebug('stream error:', e.message);
     res.status(500).send('Error fetching stream');
   }
 });
 
 app.get('/status', (req, res) => res.send('OK'));
 
+// ---------- Start server ----------
 app.listen(PORT, () => {
   logDebug(`Stalker local proxy running at http://0.0.0.0:${PORT} (portal: ${config.host})`);
 });
+
+/* ========== end ========== */
