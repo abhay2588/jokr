@@ -1,0 +1,384 @@
+// ===========================================================
+// IPTV STALKER + JTV WORKER (Final Clean Patched Version - patched)
+// Features: Smart Grouping, Custom DRM, JTV Fallback
+// ===========================================================
+
+// ----------------------------- 1. CONFIGURATION -----------------------------
+const config = {
+  host: "",            // e.g. portal.example.com (No http://)
+  mac_address: "",     // e.g. 00:1A:79:XX:XX:XX
+  serial_number: "",   // Your Serial Number
+  device_id: "",       // Device ID 1
+  device_id_2: "",     // Device ID 2
+  stb_type: "MAG254",
+  api_signature: "263"
+};
+
+// ----------------------------- 2. UTILITIES -----------------------------
+async function hash(str) {
+  const buf = new TextEncoder().encode(str || "");
+  const digest = await crypto.subtle.digest("MD5", buf);
+  return [...new Uint8Array(digest)]
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function generateHardwareVersions() {
+  try {
+    config.hw_version = "1.7-BD-" + (await hash(config.mac_address)).substring(0, 2).toUpperCase();
+    config.hw_version_2 = await hash(
+      (config.serial_number || "").toLowerCase() + 
+      (config.mac_address || "").toLowerCase()
+    );
+  } catch (err) {
+    config.hw_version = "1.7";
+    config.hw_version_2 = "";
+  }
+}
+
+function log(msg) {
+  try { console.log(new Date().toISOString() + " - " + msg); } catch {}
+}
+
+function getHeaders(token = "") {
+  const h = {
+    "Cookie": `mac=${config.mac_address}; stb_lang=en; timezone=GMT`,
+    "Referer": `http://${config.host}/stalker_portal/c/`,
+    "User-Agent": "Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 Safari/533.3",
+    "X-User-Agent": `Model: ${config.stb_type}; Link: WiFi`
+  };
+  if (token) h["Authorization"] = `Bearer ${token}`;
+  return h;
+}
+
+// ----------------------------- 3. STALKER API -----------------------------
+async function getToken() {
+  const url = `http://${config.host}/stalker_portal/server/load.php?type=stb&action=handshake&JsHttpRequest=1-xml`;
+  try {
+    const r = await fetch(url, { headers: getHeaders() });
+    if (!r.ok) {
+      log("getToken non-ok: " + r.status);
+      return "";
+    }
+    const txt = await r.text();
+    const data = JSON.parse(txt || "{}");
+    return data.js?.token || "";
+  } catch (e) {
+    log("getToken err: " + (e && e.message));
+    return "";
+  }
+}
+
+async function auth(token) {
+  const metrics = encodeURIComponent(JSON.stringify({ mac: config.mac_address, model: "", type: "STB", uid: "", device: "", random: "" }));
+  const url = `http://${config.host}/stalker_portal/server/load.php?type=stb&action=get_profile&sn=${config.serial_number}&stb_type=${config.stb_type}&device_id=${config.device_id}&device_id2=${config.device_id_2}&hw_version=${config.hw_version}&hw_version_2=${config.hw_version_2}&metrics=${metrics}&api_signature=${config.api_signature}&JsHttpRequest=1-xml`;
+  try {
+    const r = await fetch(url, { headers: getHeaders(token) });
+    if (!r.ok) {
+      log("auth non-ok: " + r.status);
+      return [];
+    }
+    const txt = await r.text();
+    const data = JSON.parse(txt || "{}");
+    return data.js || [];
+  } catch (e) {
+    log("auth err: " + (e && e.message));
+    return [];
+  }
+}
+
+async function handShake(token) {
+  const url = `http://${config.host}/stalker_portal/server/load.php?type=stb&action=handshake&token=${token}&JsHttpRequest=1-xml`;
+  try {
+    const r = await fetch(url, { headers: getHeaders(token) });
+    if (!r.ok) {
+      log("handShake non-ok: " + r.status);
+      return "";
+    }
+    const txt = await r.text();
+    const data = JSON.parse(txt || "{}");
+    return data.js?.token || "";
+  } catch (e) {
+    log("handShake err: " + (e && e.message));
+    return "";
+  }
+}
+
+async function getAccountInfo(token) {
+  const url = `http://${config.host}/stalker_portal/server/load.php?type=account_info&action=get_main_info&JsHttpRequest=1-xml`;
+  try {
+    const r = await fetch(url, { headers: getHeaders(token) });
+    if (!r.ok) {
+      log("getAccountInfo non-ok: " + r.status);
+      return [];
+    }
+    const txt = await r.text();
+    const data = JSON.parse(txt || "{}");
+    return data.js || [];
+  } catch (e) {
+    log("getAccountInfo err: " + (e && e.message));
+    return [];
+  }
+}
+
+// safe getGenres (you added it, keep it)
+async function getGenres(token) {
+  const url = `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_genres&JsHttpRequest=1-xml`;
+  try {
+    const r = await fetch(url, { headers: getHeaders(token) });
+    if (!r.ok) {
+      log("getGenres non-ok: " + r.status);
+      return [];
+    }
+    const txt = await r.text();
+    const data = JSON.parse(txt || "{}");
+    return data.js || [];
+  } catch (e) {
+    log("getGenres err: " + (e && e.message));
+    return [];
+  }
+}
+
+async function getStreamURL(id, token) {
+  const url = `http://${config.host}/stalker_portal/server/load.php?type=itv&action=create_link&cmd=ffrt%20http://localhost/ch/${id}&JsHttpRequest=1-xml`;
+  try {
+    const r = await fetch(url, { headers: getHeaders(token) });
+    if (!r.ok) {
+      log("getStreamURL non-ok: " + r.status);
+      return "";
+    }
+    const txt = await r.text();
+    const data = JSON.parse(txt || "{}");
+    return data.js?.cmd || "";
+  } catch (e) {
+    log("getStreamURL err: " + (e && e.message));
+    return "";
+  }
+}
+
+async function genToken() {
+  await generateHardwareVersions();
+  const t = await getToken();
+  if (!t) return { token: "", profile: [], account_info: [] };
+  const p = await auth(t);
+  const t2 = await handShake(t);
+  if (!t2) return { token: "", profile: p, account_info: [] };
+  const acc = await getAccountInfo(t2);
+  return { token: t2, profile: p, account_info: acc };
+}
+
+// ----------------------------- 4. JTV FALLBACK LOGIC -----------------------------
+const JTV_SOURCES = [
+  "https://long-unit.abhay258.workers.dev/jstar.m3u",
+  "https://cdn.jsdelivr.net/gh/alex8875/m3u@main/jstar.m3u",
+  "https://raw.githubusercontent.com/alex8875/m3u/main/jstar.m3u"
+];
+const EMBEDDED_JTV = `#EXTM3U\n#EXTINF:-1,Fallback JTV\nhttps://tg-aadi.vercel.app/intro.m3u8`;
+
+async function fetchJTV() {
+  for (const url of JTV_SOURCES) {
+    try {
+      const r = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        cf: { colocationOverride: "SJC" },
+        redirect: "follow"
+      });
+      if (!r || !r.ok) {
+        log("fetchJTV source failed: " + url + " status:" + (r ? r.status : "no response"));
+        continue;
+      }
+      const txt = await r.text();
+      if (txt && txt.trim().length > 50) {
+        try {
+          await caches.default.put(new Request("https://cache/jtv"), new Response(txt, { headers: { "Cache-Control": "public, max-age=300" } }));
+        } catch (e) { log("cache put failed: " + (e && e.message)); }
+        return txt;
+      } else {
+        log("fetchJTV returned too small text from: " + url);
+      }
+    } catch (e) {
+      log("fetchJTV exception: " + (e && e.message));
+    }
+  }
+
+  try {
+    const cached = await caches.default.match(new Request("https://cache/jtv"));
+    if (cached) {
+      const ctxt = await cached.text();
+      if (ctxt && ctxt.trim().length > 10) {
+        log("fetchJTV using cached copy");
+        return ctxt;
+      }
+    }
+  } catch (e) {
+    log("fetchJTV cache read failed: " + (e && e.message));
+  }
+
+  log("fetchJTV using embedded fallback");
+  return EMBEDDED_JTV;
+}
+
+// ----------------------------- 5. SMART GROUPING -----------------------------
+function normalizeGroup(name) {
+  if (!name) return "Other";
+  const n = (name + "").toLowerCase();
+
+  if (n.includes("sport") || n.includes("cricket") || n.includes("football")) return "Sports";
+  if (n.includes("movie") || n.includes("cinema") || n.includes("film")) return "Movies";
+  if (n.includes("news")) return "News";
+  if (n.includes("kid") || n.includes("cartoon") || n.includes("anim")) return "Kids";
+  if (n.includes("music") || n.includes("song")) return "Music";
+  if (n.includes("docu") || n.includes("infotain") || n.includes("knowledge")) return "Documentary";
+  if (n.includes("entert") || n.includes("sony") || n.includes("star") || n.includes("zee") || n.includes("color")) return "Entertainment";
+
+  return (name + "").replace(/[^\w\s]/g, "").trim();
+}
+
+// ----------------------------- 6. M3U GENERATOR -----------------------------
+async function convertJsonToM3U(channels, profile, account_info, req) {
+  const m3u = ["#EXTM3U", `# Total Channels => ${Array.isArray(channels) ? channels.length : 0}`, "# Script => @tg_aadi"];
+  const origin = (new URL(req.url)).origin;
+
+  const info = (n, v) => {
+    m3u.push(`#EXTINF:-1 group-title="Portal | Info",${n} • ${v}`);
+    m3u.push("https://tg-aadi.vercel.app/intro.m3u8");
+  };
+
+  info("IP", profile?.ip || "Unknown");
+  info("Portal", config.host);
+  info("Expire", account_info?.end_date || "Unknown");
+
+  // Group Channels
+  const grouped = {};
+  (channels || []).forEach(ch => {
+    const rawGroup = ch.group_title || ch.title || ch.tv_genre_title || "Other";
+    const cleanGroup = normalizeGroup(rawGroup);
+
+    let cmd = (ch.cmd || "").replace("ffrt http://localhost/ch/", "").trim();
+    if (!cmd) cmd = "unknown";
+
+    const name = ch.name || ch.title || "Unknown";
+    const id = ch.xmltv_id || ch.tvgid || "";
+    const logo = ch.logo ? `http://${config.host}/stalker_portal/misc/logos/320/${ch.logo}` : "";
+
+    grouped[cleanGroup] = grouped[cleanGroup] || [];
+    grouped[cleanGroup].push({
+      name, id, logo, url: `${origin}/${cmd}.m3u8`
+    });
+  });
+
+  // Sort & Write
+  const sortedKeys = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+  sortedKeys.forEach(key => {
+    grouped[key].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    grouped[key].forEach(c => {
+      m3u.push(`#EXTINF:-1 tvg-id="${c.id}" tvg-logo="${c.logo}" group-title="${key}",${c.name}`);
+      m3u.push(c.url);
+    });
+  });
+
+  // ---------- CUSTOM DRM UNDER MOVIES ----------
+  const DRM_GROUP = "Movies";
+  const DRM_BLOCK = `
+# ===== CUSTOM DRM MOVIE CHANNELS =====
+#KODIPROP:inputstreamaddon=inputstream.adaptive
+#KODIPROP:inputstream.adaptive.manifest_type=dash
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key=40f019b86241d23ef075633fd7f1e927:058dec845bd340178a388edd104a015e
+#EXTINF:-1 tvg-id="ts210" group-title="${DRM_GROUP}",MN+ HD
+https://times-ott-live.akamaized.net/mnplus_wv_drm/index.mpd
+#KODIPROP:inputstreamaddon=inputstream.adaptive
+#KODIPROP:inputstream.adaptive.manifest_type=dash
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key=40f019b86241d23ef075633fd7f1e927:058dec845bd340178a388edd104a015e
+#EXTINF:-1 tvg-id="ts599" group-title="${DRM_GROUP}",MNX HD
+https://times-ott-live.akamaized.net/mnxhd_wv_drm/index.mpd
+#KODIPROP:inputstreamaddon=inputstream.adaptive
+#KODIPROP:inputstream.adaptive.manifest_type=dash
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key=40f019b86241d23ef075633fd7f1e927:058dec845bd340178a388edd104a015e
+#EXTINF:-1 tvg-id="ts173" group-title="${DRM_GROUP}",Movies Now HD
+https://times-ott-live.akamaized.net/moviesnow_wv_drm/index.mpd
+`;
+  m3u.push(DRM_BLOCK);
+
+  // ---------- APPEND CLEANED + STAR-REMOVED JTV ----------
+  try {
+    let jtv = await fetchJTV();
+    if (jtv && typeof jtv === "string") {
+      jtv = jtv.replace(/⭐/g, "");
+      jtv = jtv.replace(/[^\S\r\n]+/g, " ").replace(/\s+$/gm, "").trim();
+      m3u.push("\n# ===== JTV / JSTAR BLOCK =====");
+      m3u.push(jtv);
+    } else {
+      m3u.push("\n# ===== JTV FALLBACK =====");
+      m3u.push(EMBEDDED_JTV.replace(/⭐/g, ""));
+    }
+  } catch (e) {
+    log("append JTV error: " + (e && e.message));
+    m3u.push("\n# ===== JTV FALLBACK =====");
+    m3u.push(EMBEDDED_JTV.replace(/⭐/g, ""));
+  }
+
+  return m3u.join("\n");
+}
+
+// ----------------------------- 7. REQUEST HANDLER -----------------------------
+addEventListener('fetch', event => event.respondWith(handleRequest(event.request)));
+
+async function handleRequest(request) {
+  try {
+    const url = new URL(request.url);
+
+    // Auth
+    const { token, profile, account_info } = await genToken();
+    if (!token) return new Response("Auth Failed - Check Config", { status: 500 });
+
+    // Playlist Request
+    if (url.pathname === '/playlist.m3u8' || url.pathname === '/playlist.m3u') {
+      const chUrl = `http://${config.host}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`;
+      const chRes = await fetch(chUrl, { headers: getHeaders(token) });
+      if (!chRes.ok) return new Response("Channel Fetch Failed", { status: 500 });
+
+      let channels = [];
+      try {
+        const dtext = await chRes.text();
+        const d = JSON.parse(dtext || "{}");
+        channels = d.js?.data || (Array.isArray(d) ? d : []);
+      } catch (e) {
+        log("channels parse error: " + (e && e.message));
+      }
+
+      // Fetch genres and map (if available)
+      let genres = [];
+      try { genres = await getGenres(token); } catch (e) { log("genres err: " + (e && e.message)); }
+      const genreMap = {};
+      if (Array.isArray(genres)) {
+        genres.forEach(g => { if (g && g.id) genreMap[g.id] = g.title || g.name || g.title; });
+      }
+
+      // Map genre titles back into channels (safe)
+      channels = (channels || []).map(ch => ({
+        ...ch,
+        group_title: ch.tv_genre_id ? (genreMap[ch.tv_genre_id] || ch.group_title || ch.title || "Other") : (ch.group_title || ch.title || "Other")
+      }));
+
+      const m3u = await convertJsonToM3U(channels, profile, account_info, request);
+      return new Response(m3u, { headers: { 'Content-Type': 'application/vnd.apple.mpegurl' } });
+    }
+
+    // Stream redirect
+    if (url.pathname.endsWith('.m3u8')) {
+      const id = url.pathname.split('/').pop().replace('.m3u8', '');
+      if (!id) return new Response("Missing id", { status: 400 });
+      const stream = await getStreamURL(id, token);
+      return stream ? Response.redirect(stream, 302) : new Response("Stream Not Found", { status: 404 });
+    }
+
+    // root
+    return new Response("Worker Active. Go to /playlist.m3u8", { headers: { 'Content-Type': 'text/html' } });
+  } catch (e) {
+    log("handleRequest error: " + (e && e.message));
+    return new Response("Worker Error: " + (e && e.message), { status: 500 });
+  }
+}
