@@ -1,0 +1,474 @@
+// Multi-Portal Manager (Pro v4.0 - Hybrid + Cache + Custom)
+// Features: KV-backed, Search, Test, Info Block, 24h External Cache, Custom DASH Channels
+
+const CF_DC_PRIORITY = ["BOM","SIN","HKG","ICN","EWR"];
+const EXT_PLAYLIST_URL = "https://long-unit.abhay258.workers.dev/";
+const CACHE_KEY_EXT = "cache_external_m3u";
+const CACHE_TTL = 86400; // 24 Hours in seconds
+
+// CUSTOM CHANNELS (Hardcoded)
+const CUSTOM_CHANNELS_DATA = `
+#KODIPROP:inputstreamaddon=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key=40f019b86241d23ef075633fd7f1e927:058dec845bd340178a388edd104a015e
+#EXTINF:-1 tvg-id="ts210" tvg-logo="https://ltsk-cdn.s3.eu-west-1.amazonaws.com/jumpstart/Temp_Live/cdn/HLS/Channel/transparentImages/MNPlusHD.png" group-logo="" group-title="Custom Movies",MN+ 
+https://times-ott-live.akamaized.net/mnplus_wv_drm/index.mpd
+
+#KODIPROP:inputstreamaddon=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key=40f019b86241d23ef075633fd7f1e927:058dec845bd340178a388edd104a015e
+#EXTINF:-1 tvg-id="ts599" tvg-logo="https://ltsk-cdn.s3.eu-west-1.amazonaws.com/jumpstart/Temp_Live/cdn/HLS/Channel/transparentImages/MNX%20HD.png" group-logo="" group-title="Custom Movies",MNX
+https://times-ott-live.akamaized.net/mnxhd_wv_drm/index.mpd
+
+#KODIPROP:inputstreamaddon=inputstream.adaptive 
+#KODIPROP:inputstream.adaptive.manifest_type=dash 
+#KODIPROP:inputstream.adaptive.license_type=org.w3.clearkey
+#KODIPROP:inputstream.adaptive.license_key=40f019b86241d23ef075633fd7f1e927:058dec845bd340178a388edd104a015e
+#EXTINF:-1 tvg-id="ts173" tvg-logo="https://ltsk-cdn.s3.eu-west-1.amazonaws.com/jumpstart/Temp_Live/cdn/HLS/Channel/transparentImages/Movies%20Now%20HD.png" group-logo="" group-title="Custom Movies",Movies Now
+https://times-ott-live.akamaized.net/moviesnow_wv_drm/index.mpd
+`;
+
+// ==========================================
+// 1. UI HTML
+// ==========================================
+const UI_HTML = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Multi-Portal Manager Pro</title>
+<style>:root{--bg:#0b0b0b;--card:#121212;--muted:#9a9a9a;--accent:#0a84ff;--success:#22c55e;--danger:#ef4444}body{background:var(--bg);color:#eee;font-family:Inter,Arial;margin:0;padding:18px}.wrap{max-width:820px;margin:auto}.card{background:var(--card);padding:20px;border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.5);margin-bottom:20px}input,select,button{width:100%;padding:12px;margin-top:8px;border-radius:8px;border:1px solid #333;background:#1e1e1e;color:#fff;outline:none}input:focus{border-color:var(--accent)}label{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:16px;display:block;font-weight:600}.row{display:flex;gap:10px}.list{margin-top:12px;max-height:300px;overflow-y:auto}.portal-item{display:flex;justify-content:space-between;align-items:center;padding:12px;background:#181818;border-radius:8px;margin-bottom:8px;border:1px solid #222}.portal-item:hover{background:#222}.btn{background:var(--accent);color:#fff;font-weight:700;cursor:pointer;transition:0.2s}.btn:hover{opacity:0.9}.danger{background:var(--danger)}.success{background:var(--success)}.ghost{background:transparent;border:1px solid #444;color:#aaa}.hint{color:var(--muted);font-size:13px;margin-top:8px}code{background:#222;padding:2px 6px;border-radius:4px;font-family:monospace;color:#fab005}.status-dot{height:10px;width:10px;border-radius:50%;display:inline-block;margin-right:8px;background:#555}.online{background:var(--success)}.offline{background:var(--danger)}</style>
+</head><body><div class="wrap">
+<div class="card">
+    <h2 style="margin:0">Saved Portals</h2>
+    <input id="search" placeholder="🔍 Search saved portals..." onkeyup="filterList()">
+    <div id="portalList" class="list"></div>
+</div>
+<div class="card">
+    <h2 style="margin:0 0 8px 0">Edit Portal</h2>
+    <div class="row">
+        <div style="flex:1"><label>Name (ID)</label><input id="p_name" placeholder="MP1"></div>
+        <div style="flex:2"><label>Host URL</label><input id="p_host" placeholder="tv.example.com"></div>
+    </div>
+    <label>MAC Address</label><input id="p_mac" placeholder="00:1A:79:XX:XX:XX">
+    <div class="row">
+        <div style="flex:1"><label>Serial Number</label><input id="p_sn" placeholder=""></div>
+        <div style="flex:1"><label>STB Type</label><select id="p_stb"><option>MAG250</option><option>MAG254</option><option selected>MAG420</option><option>MAG424</option><option>MAG500</option></select></div>
+    </div>
+    <div class="row">
+        <input id="p_dev1" placeholder="Device ID 1">
+        <input id="p_dev2" placeholder="Device ID 2">
+    </div>
+    <div class="row" style="margin-top:20px">
+        <button class="btn success" onclick="savePortal()">💾 Save</button>
+        <button class="btn ghost" onclick="testPortal()">⚡ Test Connection</button>
+        <button class="btn ghost" onclick="clearForm()">✕ Clear</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+        <button onclick="viewInfo()" class="btn">▶ View Status & Link</button>
+        <button class="btn danger" onclick="deletePortal()">🗑 Delete</button>
+    </div>
+    <div id="msg" style="margin-top:12px;font-weight:bold;text-align:center;min-height:20px"></div>
+</div></div>
+<script>
+async function api(path, opts){ const r = await fetch(path, opts); return r; }
+async function loadList(){ 
+    const r = await api('/api/list'); 
+    const json = r.ok ? await r.json() : []; 
+    const list = document.getElementById('portalList'); 
+    list.innerHTML = ''; 
+    json.forEach(name=>{ 
+        const el = document.createElement('div'); 
+        el.className='portal-item'; 
+        el.dataset.name = name.toLowerCase();
+        el.innerHTML = '<div><span class="status-dot" id="dot-'+name+'"></span><span style="font-weight:700">'+name+'</span></div><div style="display:flex;gap:8px"><button class="btn ghost" style="padding:6px 12px" onclick=\"copyLink(\\''+name+'\\')\">Copy</button><button class="btn" style="padding:6px 12px" onclick=\"loadPortal(\\''+name+'\\')\">Load</button></div>'; 
+        list.appendChild(el); 
+    }); 
+}
+function filterList(){
+    const term = document.getElementById('search').value.toLowerCase();
+    document.querySelectorAll('.portal-item').forEach(el => {
+        el.style.display = el.dataset.name.includes(term) ? 'flex' : 'none';
+    });
+}
+async function loadPortal(name){ const r = await api('/api/get?name='+encodeURIComponent(name)); const d = r.ok ? await r.json() : null; if (!d) { showMsg('Failed to load',true); return; } p_name.value = name; p_host.value = d.host||''; p_mac.value = d.mac_address||''; p_sn.value = d.serial_number||''; p_dev1.value = d.device_id||''; p_dev2.value = d.device_id_2||''; p_stb.value = d.stb_type||'MAG420'; showMsg('Loaded '+name); }
+async function savePortal(){ const name = (p_name.value||'').trim(); if(!name){ showMsg('Enter Name',true); return; } const cfg = { host:p_host.value.trim(), mac_address:p_mac.value.trim(), serial_number:p_sn.value.trim(), device_id:p_dev1.value.trim(), device_id_2:p_dev2.value.trim(), stb_type:p_stb.value }; const r = await api('/api/save',{method:'POST',body:JSON.stringify({name,config:cfg})}); if (r.ok) { showMsg('Saved '+name); loadList(); } else showMsg('Save failed',true); }
+async function deletePortal(){ const name = (p_name.value||'').trim(); if(!name){ showMsg('Enter Name',true); return; } if(!confirm('Delete '+name+'?')) return; const r = await api('/api/delete',{method:'POST',body:JSON.stringify({name})}); if (r.ok) { showMsg('Deleted '+name); loadList(); clearForm(); } else showMsg('Delete failed',true); }
+async function testPortal(){
+    const name = (p_name.value||'').trim(); if(!name){ showMsg('Load a portal first',true); return; }
+    showMsg('Testing connection...');
+    const r = await api('/api/test?name='+encodeURIComponent(name));
+    if(r.ok) showMsg('✅ Connection Successful!');
+    else showMsg('❌ Connection Failed', true);
+}
+function copyLink(name){
+    const url = window.location.origin + '/playlist?name=' + encodeURIComponent(name) + '.m3u8';
+    navigator.clipboard.writeText(url);
+    showMsg('Link copied for '+name);
+}
+function clearForm(){ p_name.value=''; p_host.value=''; p_mac.value=''; p_sn.value=''; p_dev1.value=''; p_dev2.value=''; p_stb.value='MAG420'; }
+function showMsg(t,err){ const m=document.getElementById('msg'); m.innerHTML = '<span style=\"color:'+(err?'#ef4444':'#22c55e')+'\">'+t+'</span>'; setTimeout(()=>m.innerHTML='',4000); }
+async function viewInfo(){ const name = (p_name.value||'').trim(); if(!name){ showMsg('Enter Name',true); return; } window.location = '/playlist?name='+encodeURIComponent(name); }
+window.onload = loadList;
+</script></body></html>`;
+
+// ==========================================
+// 2. WORKER HELPERS
+// ==========================================
+const KV_PREFIX = "portal_";
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function kvList(){ try{ const list = await PORTAL.list(); return (list.keys||[]).map(k=>k.name.replace(KV_PREFIX,'')); } catch(e){ return []; } }
+async function kvGet(name){ try{ const v = await PORTAL.get(KV_PREFIX+name); return v ? JSON.parse(v): null; } catch { return null; } }
+async function kvPut(name,obj){ await PORTAL.put(KV_PREFIX+name, JSON.stringify(obj)); }
+async function kvDelete(name){ await PORTAL.delete(KV_PREFIX+name); }
+
+// NEW: External Cache Helper
+async function getCachedExternalPlaylist() {
+    try {
+        // Try to get from KV
+        let cached = await PORTAL.get(CACHE_KEY_EXT);
+        if (cached) {
+            return cached; // Return valid cache
+        }
+        
+        // If not in KV, fetch fresh
+        const response = await fetch(EXT_PLAYLIST_URL, {
+            headers: {'User-Agent': 'Mozilla/5.0'}
+        });
+        if (response.ok) {
+            let text = await response.text();
+            // Remove #EXTM3U if present to avoid dupe headers
+            text = text.replace(/^#EXTM3U/i, "").trim();
+            // Store in KV with 24 hour Expiration
+            await PORTAL.put(CACHE_KEY_EXT, text, {expirationTtl: CACHE_TTL});
+            return text;
+        }
+        return "";
+    } catch (e) {
+        return ""; // Fail silently, don't break the main portal
+    }
+}
+
+async function md5Hex(str) {
+    const data = new TextEncoder().encode(str);
+    const digest = await crypto.subtle.digest('MD5', data);
+    return [...new Uint8Array(digest)].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+
+async function genHwVersions(cfg) {
+    cfg.hw_version = '1.7-BD-' + (await md5Hex(cfg.mac_address)).substring(0, 2).toUpperCase();
+    cfg.hw_version_2 = await md5Hex((cfg.serial_number || "").toLowerCase() + (cfg.mac_address || "").toLowerCase());
+    return cfg;
+}
+
+function getHeaders(cfg, token = '') {
+    const headers = {
+        'Cookie': `mac=${cfg.mac_address}; stb_lang=en; timezone=GMT`,
+        'Referer': `http://${cfg.host}/stalker_portal/c/`,
+        'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG200 stbapp ver: 2 rev: 250 Safari/533.3',
+        'X-User-Agent': `Model: ${cfg.stb_type}; Link: WiFi`
+    };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+}
+
+async function fetchWithDC(url, opts={}, tryList=CF_DC_PRIORITY){
+  let lastErr=null;
+  for(const dc of tryList){
+    try{
+      const merged = {...opts, cf:{colocationOverride:dc}};
+      const r = await fetch(url, merged);
+      if(r && r.ok) return {res:r, dc};
+      lastErr = `dc ${dc} status ${r ? r.status : 'noresp'}`;
+    }catch(e){ lastErr = e.message; }
+  }
+  try{ const r = await fetch(url, opts); if(r && r.ok) return {res:r, dc:'DEFAULT'}; lastErr = 'final fetch failed'; }catch(e){ lastErr = e.message; }
+  throw lastErr;
+}
+
+function safeJSON(txt) { try { return JSON.parse(txt); } catch { return {}; } }
+
+// ==========================================
+// 3. STALKER API LOGIC
+// ==========================================
+
+async function getInitialToken(cfg, dc) {
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js?.token || "";
+    } catch { return ""; }
+}
+
+async function doAuth(cfg, token, dc) {
+    const metrics = { mac: cfg.mac_address, model: '', type: 'STB', uid: '', device: '', random: '' };
+    const metricsEncoded = encodeURIComponent(JSON.stringify(metrics));
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=stb&action=get_profile`
+        + `&hd=1&ver=ImageDescription:%200.2.18-r14-pub-250;%20PORTAL%20version:%205.5.0;%20API%20Version:%20328;`
+        + `&num_banks=2&sn=${cfg.serial_number}&stb_type=${cfg.stb_type}&client_type=STB&image_version=218&video_out=hdmi`
+        + `&device_id=${cfg.device_id}&device_id2=${cfg.device_id_2}&signature=&auth_second_step=1&hw_version=${cfg.hw_version}`
+        + `&not_valid_token=0&metrics=${metricsEncoded}&hw_version_2=${cfg.hw_version_2}&api_signature=263&prehash=&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg, token) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js || null; 
+    } catch { return null; }
+}
+
+async function getNewToken(cfg, oldToken, dc) {
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=stb&action=handshake&token=${oldToken}&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js?.token || "";
+    } catch { return ""; }
+}
+
+async function getAccountInfo(cfg, token, dc) {
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=account_info&action=get_main_info&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg, token) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js || {};
+    } catch { return {}; }
+}
+
+async function getGenres(cfg, token, dc) {
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=itv&action=get_genres&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg, token) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js || [];
+    } catch { return []; }
+}
+
+async function getAllChannels(cfg, token, dc) {
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg, token) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js?.data || [];
+    } catch { return []; }
+}
+
+async function getStreamURL(cfg, cmdId, token, dc) {
+    const url = `http://${cfg.host}/stalker_portal/server/load.php?type=itv&action=create_link&cmd=ffrt%20http://localhost/ch/${cmdId}&JsHttpRequest=1-xml`;
+    try {
+        const {res} = await fetchWithDC(url, { headers: getHeaders(cfg, token) }, [dc]);
+        const txt = await res.text();
+        return safeJSON(txt).js?.cmd || "";
+    } catch { return ""; }
+}
+
+// ==========================================
+// 4. M3U BUILDER (Stalker + Custom + External)
+// ==========================================
+function esc(s){ if(s===undefined||s===null) return ""; return String(s).replace(/\r?\n/g," ").replace(/"/g,"'"); }
+
+function buildM3U(channels, gmap, cfgName, cfg, profile, account, request, extraM3u){
+    const out = [];
+    const origin = new URL(request.url).origin;
+    
+    out.push("#EXTM3U");
+    out.push(`# Total Channels => ${channels.length}`);
+    out.push(`# Portal => ${cfg.host}`);
+    out.push("");
+    
+    // --- INFO BLOCK ---
+    const server_ip = profile.ip || 'Unknown';
+    out.push(`#EXTINF:-1 tvg-logo="https://img.icons8.com/?size=160&id=OWj5Eo00EaDP&format=png" group-title="Portal | Info",IP • ${server_ip}`);
+    out.push("https://tg-aadi.vercel.app/intro.m3u8");
+
+    const user_ip = request.headers.get('CF-Connecting-IP') || 'Unknown';
+    out.push(`#EXTINF:-1 tvg-logo="https://uxwing.com/wp-content/themes/uxwing/download/location-travel-map/ip-location-color-icon.svg" group-title="Portal | Info",User IP • ${user_ip}`);
+    out.push("https://tg-aadi.vercel.app/intro.m3u8");
+
+    out.push(`#EXTINF:-1 tvg-logo="https://upload.wikimedia.org/wikipedia/commons/6/6f/IPTV.png" group-title="Portal | Info",Portal • ${cfg.host}`);
+    out.push("https://tg-aadi.vercel.app/intro.m3u8");
+
+    const created = profile.created || 'Unknown';
+    out.push(`#EXTINF:-1 tvg-logo="https://cdn-icons-png.flaticon.com/128/1048/1048953.png" group-title="Portal | Info",Created • ${created}`);
+    out.push("https://tg-aadi.vercel.app/intro.m3u8");
+
+    const end_date = account.end_date || 'Unknown';
+    out.push(`#EXTINF:-1 tvg-logo="https://www.citypng.com/public/uploads/preview/hand-drawing-clipart-14-feb-calendar-icon-701751694973910ds70zl0u9u.png" group-title="Portal | Info",Expire • ${end_date}`);
+    out.push("https://tg-aadi.vercel.app/intro.m3u8");
+
+    const tariff = account.tariff_plan || 'Unknown';
+    out.push(`#EXTINF:-1 tvg-logo="https://img.lovepik.com/element/45004/5139.png_300.png" group-title="Portal | Info",Tariff • ${tariff}`);
+    out.push("https://tg-aadi.vercel.app/intro.m3u8");
+
+    // --- 1. CUSTOM CHANNELS (Hardcoded) ---
+    if(CUSTOM_CHANNELS_DATA) {
+        out.push("");
+        out.push(CUSTOM_CHANNELS_DATA.trim());
+    }
+
+    // --- 2. EXTERNAL M3U (Cached) ---
+    if(extraM3u) {
+        out.push("");
+        out.push(extraM3u);
+    }
+
+    // --- 3. STALKER CHANNELS ---
+    out.push("");
+    for(const ch of channels) {
+        let cmd = ch.cmd || "";
+        let real_cmd = cmd.replace('ffrt http://localhost/ch/', '').trim();
+        if(!real_cmd) real_cmd = ch.id || ch.ch_id || ("ch_"+Math.floor(Math.random()*1000));
+        
+        const name = esc(ch.name || "Unknown");
+        const logo = ch.logo ? `http://${cfg.host}/stalker_portal/misc/logos/320/${ch.logo}` : "";
+        
+        let group = "Other";
+        if(gmap && ch.tv_genre_id && gmap[ch.tv_genre_id]) group = gmap[ch.tv_genre_id];
+
+        const streamUrl = `${origin}/${encodeURIComponent(real_cmd)}.m3u8?name=${encodeURIComponent(cfgName)}`;
+        out.push(`#EXTINF:-1 tvg-id="${esc(ch.xmltv_id)}" tvg-logo="${esc(logo)}" group-title="${esc(group)}",${name}`);
+        out.push(streamUrl);
+    }
+    return out.join("\n");
+}
+function makeDebugHTML(cfgName, profile, account, channels, dcUsed, fullLink){
+    const expiry = account.end_date || "Unknown";
+    const created = profile.created || "Unknown";
+    const max = (profile.storages && Object.values(profile.storages)[0]?.max_online) || "Unknown";
+    
+    return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Portal Status</title>
+    <style>body{background:#0d0d0d;color:#eee;font-family:sans-serif;padding:20px;max-width:600px;margin:auto}
+    .box{background:#1a1a1a;padding:20px;border-radius:10px;margin-bottom:20px}
+    .grn{color:#4f4} .lbl{color:#888;font-size:14px} .val{font-size:18px;font-weight:bold;margin-bottom:10px;display:block}
+    input{width:100%;padding:10px;background:#333;border:0;color:#fff;border-radius:5px;margin-top:5px}
+    </style></head><body>
+    <h2>Portal Status: <span class="grn">ONLINE</span></h2>
+    <div class="box">
+        <span class="lbl">Cloudflare DC</span><span class="val" style="color:#0af">${dcUsed}</span>
+        <span class="lbl">Account Expiry</span><span class="val">${expiry}</span>
+        <span class="lbl">Created Date</span><span class="val">${created}</span>
+        <span class="lbl">Max Connections</span><span class="val">${max}</span>
+        <span class="lbl">Total Channels (Stalker)</span><span class="val">${channels.length}</span>
+    </div>
+    <div class="box">
+        <span class="lbl">YOUR M3U PLAYLIST LINK:</span>
+        <input onclick="this.select()" value="${fullLink}" readonly>
+        <p style="color:#666;font-size:12px;margin-top:8px">Copy this link into your IPTV Player.</p>
+    </div>
+    </body></html>`;
+}
+
+// ==========================================
+// 5. ROUTER
+// ==========================================
+addEventListener('fetch', event => event.respondWith(handleRequest(event.request)));
+
+async function handleRequest(request){
+    try {
+        if(typeof PORTAL === 'undefined') return new Response("Error: KV 'PORTAL' not bound.", {status:500});
+
+        const url = new URL(request.url);
+        const path = url.pathname;
+
+        if(path === "/ui") return new Response(UI_HTML, {headers: {"Content-Type":"text/html; charset=utf-8"}});
+
+        // API
+        if(path === "/api/list") { const keys = await kvList(); return new Response(JSON.stringify(keys), {headers: {'Content-Type':'application/json'}}); }
+        if(path === "/api/get") { const name = url.searchParams.get("name")||""; if(!name) return new Response("Missing name",{status:400}); const cfg = await kvGet(name); return new Response(JSON.stringify(cfg||{}), {headers:{'Content-Type':'application/json'}}); }
+        if(path === "/api/save" && request.method==="POST"){ 
+            const raw = await request.text(); let obj={}; try{ obj=JSON.parse(raw);}catch{ return new Response("Bad JSON",{status:400}); } 
+            const name=(obj.name||"").trim(); const cfg=obj.config||{}; 
+            if(!name||!cfg.host) return new Response("Missing fields",{status:400}); 
+            cfg.host = String(cfg.host||"").replace(/https?:\/\//gi, "").replace(/\/$/, "").trim();
+            cfg.mac_address = String(cfg.mac_address||"").trim();
+            await kvPut(name,cfg); return new Response("OK"); 
+        }
+        if(path==="/api/delete" && request.method==="POST"){ const raw=await request.text(); let obj={}; try{ obj=JSON.parse(raw);}catch{return new Response("Bad JSON",{status:400});} const name=(obj.name||"").trim(); if(!name) return new Response("Missing name",{status:400}); await kvDelete(name); return new Response("OK"); }
+        
+        // Test Connection Endpoint
+        if(path === "/api/test") {
+            const name = url.searchParams.get("name")||""; if(!name) return new Response("Missing name",{status:400});
+            const cfg = await kvGet(name); if(!cfg) return new Response("Portal not found",{status:404});
+            await genHwVersions(cfg);
+            for(const dc of CF_DC_PRIORITY) {
+                const token = await getInitialToken(cfg, dc);
+                if(token) return new Response("OK");
+            }
+            return new Response("Fail", {status: 500});
+        }
+
+        // Playlist Generator
+        if(path === "/playlist" || path === "/playlist.m3u8") {
+            const rawName = url.searchParams.get("name")||""; if(!rawName) return new Response("Missing portal name (?name=MP1)",{status:400});
+            
+            const isM3U = rawName.toLowerCase().endsWith(".m3u8"); 
+            const cfgName = rawName.replace(/\.m3u8$/i, "");
+            
+            const cfg = await kvGet(cfgName); if(!cfg) return new Response("Portal not found",{status:404});
+
+            await genHwVersions(cfg);
+
+            let lastErr = "";
+            for(const dc of CF_DC_PRIORITY) {
+                try {
+                    // Fetch External Playlist (Parallel to auth to save time, or here)
+                    const extraM3u = await getCachedExternalPlaylist();
+
+                    const token1 = await getInitialToken(cfg, dc);
+                    if(!token1) { lastErr = `Token1 fail @ ${dc}`; continue; }
+                    
+                    const profile = await doAuth(cfg, token1, dc);
+                    if(!profile) { lastErr = `Profile Auth fail @ ${dc}`; continue; }
+
+                    const token2 = await getNewToken(cfg, token1, dc);
+                    if(!token2) { lastErr = `Token2 fail @ ${dc}`; continue; }
+
+                    const [account, genres, channels] = await Promise.all([
+                        getAccountInfo(cfg, token2, dc),
+                        getGenres(cfg, token2, dc),
+                        getAllChannels(cfg, token2, dc)
+                    ]);
+
+                    const gmap = {};
+                    (genres||[]).forEach(g => { if(g.id) gmap[g.id] = g.title || "Other"; });
+
+                    if(isM3U){
+                        const m3u = buildM3U(channels||[], gmap, cfgName, cfg, profile, account||{}, request, extraM3u);
+                        return new Response(m3u, {headers: {'Content-Type':'application/vnd.apple.mpegurl'}});
+                    } else {
+                        const fullLink = `${url.origin}/playlist?name=${cfgName}.m3u8`;
+                        const html = makeDebugHTML(cfgName, profile, account||{}, channels||[], dc, fullLink);
+                        return new Response(html, {headers:{'Content-Type':'text/html; charset=utf-8'}});
+                    }
+                } catch(e) { lastErr = e.message || String(e); }
+            }
+            return new Response(`Error: Failed all connection attempts.\nLast: ${lastErr}`, {status:500});
+        }
+
+        // Stream Redirect
+        if(path.match(/\/[^\/]+\.m3u8$/)){
+            const portalName = url.searchParams.get("name")||""; 
+            if(!portalName) return new Response("Missing portal name",{status:400});
+            const cfg = await kvGet(portalName); if(!cfg) return new Response("Portal not found",{status:404});
+            await genHwVersions(cfg);
+
+            const raw = path.split("/").pop(); const cmdPart = raw.replace(/\.m3u8$/i,""); const channelId = decodeURIComponent(cmdPart);
+
+            for(const dc of CF_DC_PRIORITY) {
+                try {
+                    const token1 = await getInitialToken(cfg, dc); if(!token1) continue;
+                    const profile = await doAuth(cfg, token1, dc); if(!profile) continue; 
+                    const token2 = await getNewToken(cfg, token1, dc); if(!token2) continue;
+                    
+                    const stream = await getStreamURL(cfg, channelId, token2, dc);
+                    if(stream) {
+                         if(stream.startsWith("http")) return Response.redirect(stream, 302);
+                         return new Response(stream, {headers:{'Content-Type':'text/plain'}});
+                    }
+                } catch(e) {}
+            }
+            return new Response("Stream Fetch Failed", {status:500});
+        }
+
+        return new Response("Worker Active. Go to /ui", {headers:{'Content-Type':'text/plain'}});
+    } catch(e) {
+        return new Response("Internal Error: " + e.message, {status: 500});
+    }
+}
