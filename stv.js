@@ -266,25 +266,33 @@ app.get('/playlist.m3u8', async (req, res) => {
     const folder = req.query.folder;
     const clientRef = req.ip;
     const cfg = loadPortalConfig(folder);
-    if (!cfg || !cfg.profiles || !cfg.profiles[0]) return res.status(404).send('Portal not found');
+
+    if (!cfg || !cfg.profiles || !cfg.profiles[0]) {
+        return res.status(404).send('Portal not found');
+    }
 
     const activeProfile = getAvailableProfile(cfg.profiles, folder, clientRef);
     if (!activeProfile) return res.status(503).send("All MACs benched.");
 
     try {
         const authHeaders = await getAuthHeaders(cfg, activeProfile, folder);
-        
-        // Fetch channels
+
         const chRes = await fetch(`http://${cfg.host}/stalker_portal/server/load.php?type=itv&action=get_all_channels`, { headers: authHeaders });
-        const chText = await chRes.text(); 
-        
+        const chText = await chRes.text();
+
         let chData;
-        try { chData = JSON.parse(chText); } 
-        catch (e) { benchMac(activeProfile.mac, folder); return res.status(500).send("Portal rejected request."); }
+        try {
+            chData = JSON.parse(chText);
+        } catch (e) {
+            benchMac(activeProfile.mac, folder);
+            return res.status(500).send("Portal rejected request.");
+        }
 
-        if (!chData.js || !chData.js.data) { benchMac(activeProfile.mac, folder); return res.status(500).send("Portal rejected request"); }
+        if (!chData.js || !chData.js.data) {
+            benchMac(activeProfile.mac, folder);
+            return res.status(500).send("Portal rejected request");
+        }
 
-        // 1. Build the Category Map
         const catMap = {};
         if (chData.js.categories) {
             chData.js.categories.forEach(cat => {
@@ -292,14 +300,15 @@ app.get('/playlist.m3u8', async (req, res) => {
             });
         }
 
-        // 2. Build the M3U with Group Titles
         let m3u = "#EXTM3U\n";
+
         chData.js.data.forEach(ch => {
-            if (!ch.cmd) return; 
+            if (!ch.cmd) return;
+
             const safeName = ch.name ? ch.name.replace(/,/g, '') : 'Unknown Channel';
             const groupName = catMap[ch.category_id] || "Uncategorized";
             const logo = ch.logo || '';
-            
+
             m3u += `#EXTINF:-1 tvg-id="${ch.id}" tvg-logo="${logo}" group-title="${groupName}",${safeName}\n`;
             m3u += `http://${req.hostname}:${PORT}/play?folder=${folder}&ch=${encodeURIComponent(ch.cmd)}\n`;
         });
@@ -307,21 +316,10 @@ app.get('/playlist.m3u8', async (req, res) => {
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.send(m3u);
 
-    } catch (e) { benchMac(activeProfile.mac, folder); res.status(500).send("Error generating playlist"); }
-});
-        let m3u = "#EXTM3U\n";
-        chData.js.data.forEach(ch => {
-            if (!ch.cmd) return; 
-            const safeName = ch.name ? ch.name.replace(/,/g, '') : 'Unknown Channel';
-            const logo = ch.logo || '';
-            m3u += `#EXTINF:-1 tvg-id="${ch.id}" tvg-logo="${logo}" group-title="Live TV",${safeName}\n`;
-            m3u += `http://${req.hostname}:${PORT}/play?folder=${folder}&ch=${encodeURIComponent(ch.cmd)}\n`;
-        });
-
-        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
-        res.send(m3u);
-
-    } catch (e) { benchMac(activeProfile.mac, folder); res.status(500).send("Error generating playlist"); }
+    } catch (e) {
+        benchMac(activeProfile.mac, folder);
+        res.status(500).send("Error generating playlist");
+    }
 });
 
 app.listen(PORT, () => {
