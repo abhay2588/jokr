@@ -262,66 +262,73 @@ app.get('/play', async (req, res) => {
     };
 });
 
+// --- 3. SMART M3U & CATEGORY GROUPING ENGINE ---
 app.get('/playlist.m3u8', async (req, res) => {
     const folder = req.query.folder;
     const clientRef = req.ip;
     const cfg = loadPortalConfig(folder);
-
-    if (!cfg || !cfg.profiles || !cfg.profiles[0]) {
-        return res.status(404).send('Portal not found');
-    }
+    
+    if (!cfg || !cfg.profiles || !cfg.profiles[0]) return res.status(404).send('Portal not found');
 
     const activeProfile = getAvailableProfile(cfg.profiles, folder, clientRef);
     if (!activeProfile) return res.status(503).send("All MACs benched.");
 
     try {
         const authHeaders = await getAuthHeaders(cfg, activeProfile, folder);
-
+        
+        // Fetch channels (categories are usually bundled in this response)
         const chRes = await fetch(`http://${cfg.host}/stalker_portal/server/load.php?type=itv&action=get_all_channels`, { headers: authHeaders });
-        const chText = await chRes.text();
-
+        const chText = await chRes.text(); 
+        
         let chData;
-        try {
-            chData = JSON.parse(chText);
-        } catch (e) {
-            benchMac(activeProfile.mac, folder);
-            return res.status(500).send("Portal rejected request.");
+        try { 
+            chData = JSON.parse(chText); 
+        } catch (e) { 
+            benchMac(activeProfile.mac, folder); 
+            return res.status(500).send("Portal rejected request."); 
         }
 
-        if (!chData.js || !chData.js.data) {
-            benchMac(activeProfile.mac, folder);
-            return res.status(500).send("Portal rejected request");
+        if (!chData.js || !chData.js.data) { 
+            benchMac(activeProfile.mac, folder); 
+            return res.status(500).send("Portal rejected request"); 
         }
 
+        // 1. Build the Category Map from the portal's genres
         const catMap = {};
-        if (chData.js.categories) {
+        if (chData.js.categories && Array.isArray(chData.js.categories)) {
             chData.js.categories.forEach(cat => {
-                catMap[cat.id] = cat.title.replace(/,/g, '');
+                // Map Category ID to its Title
+                if (cat.id) catMap[cat.id] = String(cat.title || '').replace(/,/g, '').trim();
             });
         }
 
+        // 2. Build the M3U and map each channel to its Group Title
         let m3u = "#EXTM3U\n";
-
         chData.js.data.forEach(ch => {
-            if (!ch.cmd) return;
-
-            const safeName = ch.name ? ch.name.replace(/,/g, '') : 'Unknown Channel';
-            const groupName = catMap[ch.category_id] || "Uncategorized";
+            if (!ch.cmd) return; 
+            
+            const safeName = String(ch.name || 'Unknown Channel').replace(/,/g, '').trim();
             const logo = ch.logo || '';
-
+            
+            // Look up the category title using the channel's category_id
+            const groupName = catMap[ch.category_id] || "Uncategorized";
+            
             m3u += `#EXTINF:-1 tvg-id="${ch.id}" tvg-logo="${logo}" group-title="${groupName}",${safeName}\n`;
             m3u += `http://${req.hostname}:${PORT}/play?folder=${folder}&ch=${encodeURIComponent(ch.cmd)}\n`;
         });
 
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.send(m3u);
+        console.log(`✅ [M3U] Categorized Playlist Generated for: ${cfg.display_name}`);
 
-    } catch (e) {
-        benchMac(activeProfile.mac, folder);
-        res.status(500).send("Error generating playlist");
+    } catch (e) { 
+        console.error("M3U Error:", e.message);
+        benchMac(activeProfile.mac, folder); 
+        res.status(500).send("Error generating playlist"); 
     }
 });
 
+// Start the Server
 app.listen(PORT, () => {
     console.log(`\n🚀 LEVEL 5: STICKY SESSIONS RUNNING 🚀`);
     console.log(`- Dashboard: http://localhost:${PORT}`);
